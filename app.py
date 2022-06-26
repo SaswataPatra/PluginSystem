@@ -1,39 +1,39 @@
 
-from flask import Flask,jsonify,request,json,abort
-from numpy import require
-# from flask_mysqldb import MySQL
-import psycopg2
+from flask import Flask,jsonify,request,abort 
+import smtplib
 import create_table,create_logic_files as cf,user_response as usr
-# from requests import request
-# from flask_restful import reqparse
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+import os
 app = Flask(__name__) # referencing this file
 
-conn = psycopg2.connect(
-        host="postgresdb.ctgcc3olpy9z.ap-south-1.rds.amazonaws.com",
-        database="atlan",
-        user='postgres',
-        port = 5432,
-        password='password')
+load_dotenv()
+from_ = os.environ.get('MAIL_ADDRESS')
+your_pass = os.environ.get('MAIL_PASSKEY')
 
-# mysql = MySQL(app)
+def send(to):
+    try:
+        body = "Hello World"
+        subject = 'Verification successfull'
+        message = MIMEMultipart()
+        message['From'] = from_
+        message['To'] = to
+        message['Subject'] = subject
+        message.attach(MIMEText(body, 'plain'))
+        text = message.as_string()
+        mail = smtplib.SMTP('smtp.gmail.com', 587)
+        mail.ehlo()
+        mail.starttls()
+        mail.login(from_,your_pass)
+        mail.sendmail(from_,to, text)
+        mail.close()
+        return True,"Mail sent successfully"
+    except:
+        return False,"Error in sending mail"
 
-# admin_json = reqparse.RequestParser()
-# admin_json.add_argument("name", type=str, help="Name of the video is required", required=True)
-# request = {
-#    "questionConfig":{
-#     "name": 0,
-#     "age": 0,
-#     "phone_number" : 0,
-#     "monthly_income" : 1
-# },
-# "tableConfig":{
-#     "tableName": "company_name",
-#     "primary_key" : "age",
-# }
-# }
 @app.route('/')
 def index():
-    # cur = mysql.connection.cursor()
     return "hello World"
 @app.route('/admin/set-questions',methods=['POST'])
 def admin_set_question():
@@ -41,34 +41,58 @@ def admin_set_question():
         tableConfig = request.json['tableConfig']
         questionConfig = request.json['questionConfig']
         tableConfig = request.json['tableConfig']
-        tableName = tableConfig['tableName']
+        tableName = tableConfig['tableName'].lower()
         pk = tableConfig['primary_key']
-        create_table.create(questionConfig,tableName,pk)
-        value = cf.create(tableName)
+        val,err1=create_table.create(questionConfig,tableName,pk)
+        print("Table created",val)
+        if not val:
+            return jsonify({"msg":err1})
+        val,err2 = cf.create(tableName)
+        print("File created",val)
+        if not val:
+            return jsonify({"msg":err2})
     except:
-        abort(404,"json not in format")
-    return jsonify({"msg":value})
+        abort(400,"Bad request...json not in format")
+    msg = f'{err1}    {err2}'
+    return jsonify({"msg":msg})
 @app.route('/user/response',methods=['POST'])
 def user_response():
-    required_fields = request.json['required_fields']
-    not_required_fields = request.json['not required fields']
-    val,err=usr.isValidResponseReqFields(required_fields,not_required_fields)
-    if not val:
-        return jsonify({"msg":err})
-    val,err=usr.isValidResponseForNotReqFields(not_required_fields,required_fields)
-    if not val:
-        return jsonify({"msg":err})
-    else:
-        val,err = usr.check_buissness_logic(required_fields)
+    try:
+        required_fields = request.json['required_fields']
+        not_required_fields = request.json['not_required_fields']
+    except: 
+        abort(400," Bad request,json not in format...")
+    try:
+        required_fields['tableName'] = required_fields.get('tableName').lower()
+        val,err=usr.isValidResponseReqFields(required_fields,not_required_fields)
+        print("Req field : ",val,err)
+        if not val:
+            return jsonify({"msg":err})
+        val,err=usr.isValidResponseForNotReqFields(not_required_fields,required_fields)
+        print("Req field : ",val,err)
         if not val:
             return jsonify({"msg":err})
         else:
-            required_fields.update(not_required_fields)
-            val,err = usr.insert_valid_response(required_fields)
+            val,err = usr.check_buissness_logic(required_fields)
             if not val:
                 return jsonify({"msg":err})
             else:
-                return ("Valid response")
+                
+                required_fields.update(not_required_fields)
+                val,err = usr.insert_valid_response(required_fields)
+                if not val:
+                    return jsonify({"msg":err})
+                else:
+                    print("Ima in mail")
+                    address = required_fields.get('mail')
+                    if address is not None:
+                        val,err = send(address)
+                    if not val:
+                        return jsonify({"msg":err})
+                    return jsonify({"msg":"Valid response "+err})
+    except:
+        abort(500,"Unknown error occured")
+
 if __name__ == "__main__":
     app.run(debug=True)
 

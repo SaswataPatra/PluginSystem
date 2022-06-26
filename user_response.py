@@ -1,5 +1,4 @@
 import database_connection
-import os
 import importlib
 def isValidResponseReqFields(response,not_required_fields):
     if "tableName" not in response.keys():
@@ -12,25 +11,27 @@ def isValidResponseReqFields(response,not_required_fields):
         diff = set(response) - set(not_required_fields) 
         if len(diff)!=len(response):
             return False,"JSON not in format... \n not_required_field values present in required_field values"
+
         cur.execute(f'SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS COL WHERE TABLE_NAME = \'{tableName}\' AND COL.is_nullable=\'NO\';')
-        # cur.execute(f'SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = \'{tableName}\';')
+    except:
+        return False,"Table does not exist"
+    try:
+    # cur.execute(f'SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = \'{tableName}\';')
         data = cur.fetchall()
         lst =[]
         for items in data:
             lst.append(items[0])
         lst.remove("id")
-        print(lst)
         for items in lst:
             if items not in response.keys():
                 return False,"json not in format for required fields....\n all required fields not filled"
-        return True,""
+        
+        return True,"success"
     except:
-        return False,"TABLE DOES NOT EXIST"
+        return False,"Unexpected error occured"
+
 
 def isValidResponseForNotReqFields(response,required_fields):
-    # if "tableName" not in required_fields.keys():
-    #     return False,"JSON not in format \n tableName key required"
-    # else:
     tableName=required_fields["tableName"]
     conn = database_connection.connection()
     cur = conn.cursor()
@@ -44,11 +45,11 @@ def isValidResponseForNotReqFields(response,required_fields):
         for items in data:
             lst.append(items[0])
         lst.remove("id")
-        print(lst)
+        # print(lst)
         for items in response.keys():
             if items not in lst:
                 return False,"json not in format for not-required fields..\n value to non-existing key present"
-        return True,""
+        return True,"success"
     except:
         return False,"UNEXPECTED ERROR OCCURED.. Check tableName"
 
@@ -56,41 +57,48 @@ def isValidResponseForNotReqFields(response,required_fields):
 def check_buissness_logic(response):
     try:
         tableName = response['tableName']
-        response.pop('tableName')
-        x = importlib.import_module('buissnessLogic.hello')
+        print("table:",tableName)
+        path = f'buissnessLogic.{tableName}'
+        x = importlib.import_module(path)
         function_name = tableName+"_func"
+        print("function name",function_name)
         my_method = getattr(x, function_name)
-        res = my_method(response)
+        res,msg= my_method(response)
+        print("Response : ",res)
         if res is None:
-            return False, f'Plugin for {tableName} still in development'
+            return False, f'Plugin for {tableName} is still in development'
         else:
-            return True,''
+            return res,msg
     except:
         return False,"Unexpected error occured"
-def insert_valid_response(response):
+
+def insert_valid_response(response):  
     try:
+        # print("response1",response)
         tableName = response['tableName']
-        response.pop('tableName')
+        tmp = response.copy()
+        tmp.pop('tableName')
+        # print("response",tmp)
         conn = database_connection.connection()
         cur = conn.cursor()
+
+        placeholders = ', '.join(['%s'] * len(tmp))
+        columns = ', '.join(tmp.keys())
+        sql = "INSERT INTO %s ( %s ) VALUES ( %s )" % (tableName, columns, placeholders)
+        # print("SQL",sql)
+        cur.execute(sql, list(tmp.values()))
         
+        conn.commit()
+        cur.close()
+        conn.close()
+        return (True,"Successfully validated response")
     except:
-        pass
+        return (False,"An unexpected error occured")
 
-
-
-resp = {
-    "name" : "Saswata",
-    "age" : "98",
-    "phone_number" : "980",
-    # "monthly_income" : "89",
-}
 res ={
-    "monthly_income" : "789",
-    "tableName" : "hello"
+    "name": "Saswata",
+    "mail":"cgourav472@gmail.com",
+    "tableName": "atlantestcase4"
 }
-val,err=isValidResponseReqFields(res,resp)
-print(val,":",err)
-
-# val,err=isValidResponseForNotReqFields(resp,res)
-# print(val,":",err)
+val,err = check_buissness_logic(res)
+print(val,err)
